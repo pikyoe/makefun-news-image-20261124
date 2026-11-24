@@ -10,7 +10,7 @@
 // Run locally with:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
-import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,7 +20,14 @@ const OUTPUT_DEFAULT = '/output';
 
 function frontPageBytes(): Buffer {
   const here = dirname(fileURLToPath(import.meta.url));
-  return readFileSync(join(here, IMAGE_NAME));
+  const pixels = readFileSync(join(here, IMAGE_NAME));
+  // The entry is JPEG data under the .png name; the rules tell the two
+  // apart by the file's first bytes. Refuse a corrupt or placeholder
+  // asset instead of silently shipping it.
+  if (pixels.length < 3 || pixels[0] !== 0xff || pixels[1] !== 0xd8 || pixels[2] !== 0xff) {
+    throw new Error(`${IMAGE_NAME} is not a JPEG (missing SOI marker)`);
+  }
+  return pixels;
 }
 
 function main(): void {
@@ -29,9 +36,9 @@ function main(): void {
   mkdirSync(outDir, { recursive: true });
   const target = join(outDir, IMAGE_NAME);
   writeFileSync(target, pixels);
-  const written = statSync(target);
-  if (written.size !== pixels.length) {
-    throw new Error(`short write: ${target} holds ${written.size} of ${pixels.length} bytes`);
+  const written = readFileSync(target);
+  if (!written.equals(pixels)) {
+    throw new Error(`content mismatch: ${target} differs from ${IMAGE_NAME}`);
   }
 }
 
